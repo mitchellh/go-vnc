@@ -104,6 +104,16 @@ FindAuth:
 		return err
 	}
 
+	// 7.1.3 SecurityResult Handshake
+	var securityResult uint32
+	if err = binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
+		return err
+	}
+
+	if securityResult == 1 {
+		return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
+	}
+
 	return nil
 }
 
