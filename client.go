@@ -117,6 +117,36 @@ func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
 	return binary.Write(c.c, binary.BigEndian, keyEvent[:])
 }
 
+// PointerEvent indicates that pointer movement or a pointer button
+// press or release.
+//
+// The mask is a bitwise mask of various ButtonMask values. When a button
+// is set, it is pressed, when it is unset, it is released.
+//
+// See RFC 6143 Section 7.5.5
+func (c *ClientConn) PointerEvent(mask ButtonMask, x, y uint16) error {
+	var buf bytes.Buffer
+
+	data := []interface{}{
+		uint8(5),
+		uint8(mask),
+		x,
+		y,
+	}
+
+	for _, val := range data {
+		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
+			return err
+		}
+	}
+
+	if _, err := c.c.Write(buf.Bytes()[0:6]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // SetPixelFormat sets the format in which pixel values should be sent
 // in FramebufferUpdate messages from the server.
 //
