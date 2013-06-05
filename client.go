@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"unicode"
 )
 
 type ClientConn struct {
@@ -62,6 +63,48 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 
 func (c *ClientConn) Close() error {
 	return c.c.Close()
+}
+
+// CutText tells the server that the client has new text in its cut buffer.
+// The text string MUST only contain Latin-1 characters. This encoding
+// is compatible with Go's native string format, but can only use up to
+// unicode.MaxLatin values.
+//
+// See RFC 6143 Section 7.5.6
+func (c *ClientConn) CutText(text string) error {
+	var buf bytes.Buffer
+
+	// This is the fixed size data we'll send
+	fixedData := []interface{}{
+		uint8(6),
+		uint8(0),
+		uint8(0),
+		uint8(0),
+		uint32(len(text)),
+	}
+
+	for _, val := range fixedData {
+		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
+			return err
+		}
+	}
+
+	for _, char := range text {
+		if char > unicode.MaxLatin1 {
+			return fmt.Errorf("Character '%s' is not valid Latin-1", char)
+		}
+
+		if err := binary.Write(&buf, binary.BigEndian, uint8(char)); err != nil {
+			return err
+		}
+	}
+
+	dataLength := 8 + len(text)
+	if _, err := c.c.Write(buf.Bytes()[0:dataLength]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Requests a framebuffer update from the server. There may be an indefinite
