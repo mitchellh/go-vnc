@@ -350,8 +350,10 @@ func (c *ClientConn) mainLoop() {
 	// Build the map of available server messages
 	typeMap := make(map[uint8]ServerMessage)
 
-	for _, msg := range c.config.ServerMessages {
-		typeMap[msg.Type()] = msg
+	if c.config.ServerMessages != nil {
+		for _, msg := range c.config.ServerMessages {
+			typeMap[msg.Type()] = msg
+		}
 	}
 
 	for {
