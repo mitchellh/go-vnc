@@ -313,9 +313,14 @@ func (c *ClientConn) handshake() error {
 		return err
 	}
 
+	clientSecurityTypes := c.config.Auth
+	if clientSecurityTypes == nil {
+		clientSecurityTypes = []ClientAuth{new(ClientAuthNone)}
+	}
+
 	var auth ClientAuth
 FindAuth:
-	for _, curAuth := range c.config.Auth {
+	for _, curAuth := range clientSecurityTypes {
 		for _, securityType := range securityTypes {
 			if curAuth.SecurityType() == securityType {
 				// We use the first matching supported authentication
