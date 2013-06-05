@@ -87,3 +87,58 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 
 	return &FramebufferUpdateMessage{rects}, nil
 }
+
+// SetColorMapEntriesMessage is sent by the server to set values into
+// the color map. This message will automatically update the color map
+// for the associated connection, but contains the color change data
+// if the consumer wants to read it.
+//
+// See RFC 6143 Section 7.6.2
+type SetColorMapEntriesMessage struct {
+	FirstColor uint16
+	Colors     []Color
+}
+
+func (*SetColorMapEntriesMessage) Type() uint8 {
+	return 1
+}
+
+func (*SetColorMapEntriesMessage) Read(c *ClientConn, r io.Reader) (ServerMessage, error) {
+	// Read off the padding
+	var padding [1]byte
+	if _, err := io.ReadFull(r, padding[:]); err != nil {
+		return nil, err
+	}
+
+	var result SetColorMapEntriesMessage
+	if err := binary.Read(r, binary.BigEndian, &result.FirstColor); err != nil {
+		return nil, err
+	}
+
+	var numColors uint16
+	if err := binary.Read(r, binary.BigEndian, &numColors); err != nil {
+		return nil, err
+	}
+
+	result.Colors = make([]Color, numColors)
+	for i := uint16(0); i < numColors; i++ {
+
+		color := &result.Colors[i]
+		data := []interface{}{
+			&color.R,
+			&color.G,
+			&color.B,
+		}
+
+		for _, val := range data {
+			if err := binary.Read(r, binary.BigEndian, val); err != nil {
+				return nil, err
+			}
+		}
+
+		// Update the connection's color map
+		c.ColorMap[result.FirstColor+i] = *color
+	}
+
+	return &result, nil
+}
