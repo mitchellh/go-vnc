@@ -23,6 +23,11 @@ type ClientConn struct {
 
 	// Name associated with the desktop, sent from the server.
 	DesktopName string
+
+	// The pixel format associated with the connection. This shouldn't
+	// be modified. If you wish to set a new pixel format, use the
+	// SetPixelFormat method.
+	PixelFormat PixelFormat
 }
 
 // A ClientConfig structure is used to configure a ClientConn. After
@@ -59,6 +64,9 @@ func (c *ClientConn) Close() error {
 }
 
 // KeyEvent indiciates a key press or release and sends it to the server.
+// The key is indicated using the X Window System "keysym" value. Use
+// Google to find a reference of these values. To simulate a key press,
+// you must send a key with both a down event, and a non-down event.
 //
 // See 7.5.4.
 func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
@@ -172,9 +180,8 @@ FindAuth:
 		return err
 	}
 
-	// TODO(mitchellh): Store or use this information somehow
-	var pixelFormat [16]uint8
-	if err = binary.Read(c.c, binary.BigEndian, pixelFormat[:]); err != nil {
+	// Read the pixel format
+	if err = readPixelFormat(c.c, &c.PixelFormat); err != nil {
 		return err
 	}
 
