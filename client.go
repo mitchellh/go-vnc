@@ -12,7 +12,7 @@ import (
 )
 
 type ClientConn struct {
-	c net.Conn
+	c      net.Conn
 	config *ClientConfig
 
 	// Width of the frame buffer in pixels, sent from the server.
@@ -40,7 +40,7 @@ type ClientConfig struct {
 
 func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 	conn := &ClientConn{
-		c: c,
+		c:      c,
 		config: cfg,
 	}
 
@@ -49,11 +49,31 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		return nil, err
 	}
 
+	// TODO(mitchellh): We'll want to goroutine off main loop to read messages
+
 	return conn, nil
 }
 
 func (c *ClientConn) Close() error {
 	return c.c.Close()
+}
+
+// KeyEvent indiciates a key press or release and sends it to the server.
+//
+// See 7.5.4.
+func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
+	keyEvent := [8]byte{4, 0, 0, 0, 0, 0, 0, 0}
+
+	if down {
+		keyEvent[1] = 1
+	}
+
+	var keyBytes [4]byte
+	n := binary.PutUvarint(keyBytes[:], uint64(keysym))
+	copy(keyEvent[4+(4-n):], keyBytes[0:n])
+
+	// Send it!
+	return binary.Write(c.c, binary.BigEndian, keyEvent[:])
 }
 
 func (c *ClientConn) handshake() error {
