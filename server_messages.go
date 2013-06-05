@@ -142,3 +142,16 @@ func (*SetColorMapEntriesMessage) Read(c *ClientConn, r io.Reader) (ServerMessag
 
 	return &result, nil
 }
+
+// Bell signals that an audible bell should be made on the client.
+//
+// See RFC 6143 Section 7.6.3
+type Bell byte
+
+func (*Bell) Type() uint8 {
+	return 2
+}
+
+func (*Bell) Read(*ClientConn, io.Reader) (ServerMessage, error) {
+	return new(Bell), nil
+}
