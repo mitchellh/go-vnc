@@ -17,6 +17,10 @@ type ClientConn struct {
 	c      net.Conn
 	config *ClientConfig
 
+	// Encodings supported by the client. This should not be modified
+	// directly. Instead, SetEncodings should be used.
+	Encs []Encoding
+
 	// Width of the frame buffer in pixels, sent from the server.
 	FrameBufferWidth uint16
 
@@ -203,7 +207,8 @@ func (c *ClientConn) PointerEvent(mask ButtonMask, x, y uint16) error {
 }
 
 // SetEncodings sets the encoding types in which the pixel data can
-// be sent from the server.
+// be sent from the server. After calling this method, the encs slice
+// given should not be modified.
 //
 // See RFC 6143 Section 7.5.2
 func (c *ClientConn) SetEncodings(encs []Encoding) error {
@@ -227,6 +232,8 @@ func (c *ClientConn) SetEncodings(encs []Encoding) error {
 	if _, err := c.c.Write(buf.Bytes()[0:dataLength]); err != nil {
 		return err
 	}
+
+	c.Encs = encs
 
 	return nil
 }
@@ -397,7 +404,7 @@ func (c *ClientConn) mainLoop() {
 			break
 		}
 
-		parsedMsg, err := msg.Read(c.c)
+		parsedMsg, err := msg.Read(c, c.c)
 		if err != nil {
 			break
 		}
