@@ -84,6 +84,30 @@ func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
 	return binary.Write(c.c, binary.BigEndian, keyEvent[:])
 }
 
+// SetPixelFormat sets the format in which pixel values should be sent
+// in FramebufferUpdate messages from the server.
+//
+// See RFC 6143 Section 7.5.1
+func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
+	var keyEvent [20]byte
+	keyEvent[0] = 0
+
+	pfBytes, err := writePixelFormat(format)
+	if err != nil {
+		return err
+	}
+
+	// Copy the pixel format bytes into the proper slice location
+	copy(keyEvent[4:], pfBytes)
+
+	// Send the data down the connection
+	if _, err := c.c.Write(keyEvent[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *ClientConn) handshake() error {
 	var protocolVersion [12]byte
 
