@@ -395,6 +395,17 @@ func (c *ClientConn) mainLoop() {
 	// Build the map of available server messages
 	typeMap := make(map[uint8]ServerMessage)
 
+	defaultMessages := []ServerMessage{
+		new(FramebufferUpdateMessage),
+		new(SetColorMapEntriesMessage),
+		new(BellMessage),
+		new(ServerCutTextMessage),
+	}
+
+	for _, msg := range defaultMessages {
+		typeMap[msg.Type()] = msg
+	}
+
 	if c.config.ServerMessages != nil {
 		for _, msg := range c.config.ServerMessages {
 			typeMap[msg.Type()] = msg
