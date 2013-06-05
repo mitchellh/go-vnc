@@ -17,6 +17,9 @@ type Encoding interface {
 	Read(*ClientConn, *Rectangle, io.Reader) (Encoding, error)
 }
 
+// RawEncoding is raw pixel data sent by the server.
+//
+// See RFC 6143 Section 7.7.1
 type RawEncoding struct {
 }
 

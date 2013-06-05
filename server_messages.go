@@ -54,6 +54,10 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 		encMap[enc.Type()] = enc
 	}
 
+	// We must always support the raw encoding
+	rawEnc := new(RawEncoding)
+	encMap[rawEnc.Type()] = rawEnc
+
 	rects := make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
 		var encodingType int32
