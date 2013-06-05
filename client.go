@@ -43,6 +43,18 @@ type ClientConfig struct {
 	// clients. If true, then all other clients connected will be
 	// disconnected when a connection is established to the VNC server.
 	Exclusive bool
+
+	// The channel that all messages received from the server will be
+	// sent on. If the channel blocks, then the goroutine reading data
+	// from the VNC server may block indefinitely. It is up to the user
+	// of the library to ensure that this channel is properly read.
+	// If this is not set, then all messages will be discarded.
+	ServerMessageCh chan<- ServerMessage
+
+	// A slice of supported messages that can be read from the server.
+	// This only needs to contain NEW server messages, and doesn't
+	// need to explicitly contain the RFC-required messages.
+	ServerMessages []ServerMessage
 }
 
 func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
@@ -56,7 +68,7 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		return nil, err
 	}
 
-	// TODO(mitchellh): We'll want to goroutine off main loop to read messages
+	go conn.mainLoop()
 
 	return conn, nil
 }
@@ -328,6 +340,43 @@ FindAuth:
 	c.DesktopName = string(nameBytes)
 
 	return nil
+}
+
+// mainLoop reads messages sent from the server and routes them to the
+// proper channels for users of the client to read.
+func (c *ClientConn) mainLoop() {
+	defer c.Close()
+
+	// Build the map of available server messages
+	typeMap := make(map[uint8]ServerMessage)
+
+	for _, msg := range c.config.ServerMessages {
+		typeMap[msg.Type()] = msg
+	}
+
+	for {
+		var messageType uint8
+		if err := binary.Read(c.c, binary.BigEndian, &messageType); err != nil {
+			break
+		}
+
+		msg, ok := typeMap[messageType]
+		if !ok {
+			// Unsupported message type! Bad!
+			break
+		}
+
+		parsedMsg, err := msg.Read(c.c)
+		if err != nil {
+			break
+		}
+
+		if c.config.ServerMessageCh == nil {
+			continue
+		}
+
+		c.config.ServerMessageCh <- parsedMsg
+	}
 }
 
 func (c *ClientConn) readErrorReason() string {
