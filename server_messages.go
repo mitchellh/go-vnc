@@ -79,7 +79,7 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 		}
 
 		var err error
-		rect.Enc, err = enc.Read(r)
+		rect.Enc, err = enc.Read(c, rect, r)
 		if err != nil {
 			return nil, err
 		}
