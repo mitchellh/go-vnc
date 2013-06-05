@@ -146,12 +146,43 @@ func (*SetColorMapEntriesMessage) Read(c *ClientConn, r io.Reader) (ServerMessag
 // Bell signals that an audible bell should be made on the client.
 //
 // See RFC 6143 Section 7.6.3
-type Bell byte
+type BellMessage byte
 
-func (*Bell) Type() uint8 {
+func (*BellMessage) Type() uint8 {
 	return 2
 }
 
-func (*Bell) Read(*ClientConn, io.Reader) (ServerMessage, error) {
-	return new(Bell), nil
+func (*BellMessage) Read(*ClientConn, io.Reader) (ServerMessage, error) {
+	return new(BellMessage), nil
+}
+
+// ServerCutTextMessage indicates the server has new text in the cut buffer.
+//
+// See RFC 6143 Section 7.6.4
+type ServerCutTextMessage struct {
+	Text string
+}
+
+func (*ServerCutTextMessage) Type() uint8 {
+	return 3
+}
+
+func (*ServerCutTextMessage) Read(c *ClientConn, r io.Reader) (ServerMessage, error) {
+	// Read off the padding
+	var padding [1]byte
+	if _, err := io.ReadFull(r, padding[:]); err != nil {
+		return nil, err
+	}
+
+	var textLength uint32
+	if err := binary.Read(r, binary.BigEndian, &textLength); err != nil {
+		return nil, err
+	}
+
+	textBytes := make([]uint8, textLength)
+	if err := binary.Read(r, binary.BigEndian, &textBytes); err != nil {
+		return nil, err
+	}
+
+	return &ServerCutTextMessage{string(textBytes)}, nil
 }
