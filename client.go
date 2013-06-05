@@ -14,6 +14,15 @@ import (
 type ClientConn struct {
 	c net.Conn
 	config *ClientConfig
+
+	// Width of the frame buffer in pixels, sent from the server.
+	FrameBufferWidth uint16
+
+	// Height of the frame buffer in pixels, sent from the server.
+	FrameBufferHeight uint16
+
+	// Name associated with the desktop, sent from the server.
+	DesktopName string
 }
 
 // A ClientConfig structure is used to configure a ClientConn. After
@@ -22,12 +31,17 @@ type ClientConfig struct {
 	// A slice of ClientAuth methods. Only the first instance that is
 	// suitable by the server will be used to authenticate.
 	Auth []ClientAuth
+
+	// Exclusive determines whether the connection is shared with other
+	// clients. If true, then all other clients connected will be
+	// disconnected when a connection is established to the VNC server.
+	Exclusive bool
 }
 
 func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 	conn := &ClientConn{
-		c,
-		cfg,
+		c: c,
+		config: cfg,
 	}
 
 	if err := conn.handshake(); err != nil {
@@ -118,6 +132,43 @@ FindAuth:
 	if securityResult == 1 {
 		return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
 	}
+
+	// 7.3.1 ClientInit
+	var sharedFlag uint8 = 1
+	if c.config.Exclusive {
+		sharedFlag = 0
+	}
+
+	if err = binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
+		return err
+	}
+
+	// 7.3.2 ServerInit
+	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferWidth); err != nil {
+		return err
+	}
+
+	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferHeight); err != nil {
+		return err
+	}
+
+	// TODO(mitchellh): Store or use this information somehow
+	var pixelFormat [16]uint8
+	if err = binary.Read(c.c, binary.BigEndian, pixelFormat[:]); err != nil {
+		return err
+	}
+
+	var nameLength uint32
+	if err = binary.Read(c.c, binary.BigEndian, &nameLength); err != nil {
+		return err
+	}
+
+	nameBytes := make([]uint8, nameLength)
+	if err = binary.Read(c.c, binary.BigEndian, &nameBytes); err != nil {
+		return err
+	}
+
+	c.DesktopName = string(nameBytes)
 
 	return nil
 }
