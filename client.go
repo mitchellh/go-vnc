@@ -5,6 +5,7 @@
 package vnc
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -61,6 +62,38 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 
 func (c *ClientConn) Close() error {
 	return c.c.Close()
+}
+
+// Requests a framebuffer update from the server. There may be an indefinite
+// time between the request and the actual framebuffer update being
+// received.
+//
+// See RFC 6143 Section 7.5.3
+func (c *ClientConn) FramebufferUpdateRequest(incremental bool, x, y, width, height uint16) error {
+	var buf bytes.Buffer
+	var incrementalByte uint8 = 0
+
+	if incremental {
+		incrementalByte = 1
+	}
+
+	data := []interface{}{
+		uint8(3),
+		incrementalByte,
+		x, y, width, height,
+	}
+
+	for _, val := range data {
+		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
+			return err
+		}
+	}
+
+	if _, err := c.c.Write(buf.Bytes()[0:10]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // KeyEvent indiciates a key press or release and sends it to the server.
