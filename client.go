@@ -202,6 +202,35 @@ func (c *ClientConn) PointerEvent(mask ButtonMask, x, y uint16) error {
 	return nil
 }
 
+// SetEncodings sets the encoding types in which the pixel data can
+// be sent from the server.
+//
+// See RFC 6143 Section 7.5.2
+func (c *ClientConn) SetEncodings(encs []Encoding) error {
+	data := make([]interface{}, 3+len(encs))
+	data[0] = uint8(2)
+	data[1] = uint8(0)
+	data[2] = uint16(len(encs))
+
+	for i, enc := range encs {
+		data[3+i] = int32(enc.Type())
+	}
+
+	var buf bytes.Buffer
+	for _, val := range data {
+		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
+			return err
+		}
+	}
+
+	dataLength := 4 + (4 * len(encs))
+	if _, err := c.c.Write(buf.Bytes()[0:dataLength]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // SetPixelFormat sets the format in which pixel values should be sent
 // in FramebufferUpdate messages from the server.
 //
