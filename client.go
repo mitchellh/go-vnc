@@ -64,6 +64,11 @@ func (c *ClientConn) handshake() error {
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
 
+	// Respond with the version we will support
+	if _, err = c.c.Write([]byte("RFB 003.008\n")); err != nil {
+		return err
+	}
+
 	// 7.1.2 Security Handshake from server
 	var numSecurityTypes uint8
 	if err = binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
