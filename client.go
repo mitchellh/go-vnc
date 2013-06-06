@@ -167,18 +167,26 @@ func (c *ClientConn) FramebufferUpdateRequest(incremental bool, x, y, width, hei
 //
 // See 7.5.4.
 func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
-	keyEvent := [8]byte{4, 0, 0, 0, 0, 0, 0, 0}
-
+	var downFlag uint8 = 0
 	if down {
-		keyEvent[1] = 1
+		downFlag = 1
 	}
 
-	var keyBytes [4]byte
-	n := binary.PutUvarint(keyBytes[:], uint64(keysym))
-	copy(keyEvent[4+(4-n):], keyBytes[0:n])
+	data := []interface{}{
+		uint8(4),
+		downFlag,
+		uint8(0),
+		uint8(0),
+		keysym,
+	}
 
-	// Send it!
-	return binary.Write(c.c, binary.BigEndian, keyEvent[:])
+	for _, val := range data {
+		if err := binary.Write(c.c, binary.BigEndian, val); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // PointerEvent indicates that pointer movement or a pointer button
