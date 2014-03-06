@@ -37,7 +37,7 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 		byteOrder = binary.BigEndian
 	}
 
-	colors := make([]Color, rect.Height * rect.Width)
+	colors := make([]Color, int(rect.Height)*int(rect.Width))
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
 			if _, err := io.ReadFull(r, pixelBytes); err != nil {
