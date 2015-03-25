@@ -39,6 +39,9 @@ type ClientConn struct {
 	// be modified. If you wish to set a new pixel format, use the
 	// SetPixelFormat method.
 	PixelFormat PixelFormat
+
+	// The server isn't known so downgrade
+	Downgrade bool
 }
 
 // A ClientConfig structure is used to configure a ClientConn. After
@@ -70,11 +73,32 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 	conn := &ClientConn{
 		c:      c,
 		config: cfg,
+		Downgrade: false,
 	}
 
-	if err := conn.handshake(); err != nil {
-		conn.Close()
-		return nil, err
+	if err := conn.handshake38(); err != nil {
+		// a failure in 3.8 handshake could mean a fallback is required
+		if conn.Downgrade {
+			proto := c.RemoteAddr().Network()
+			addr := c.RemoteAddr().String()
+			conn.Close()		
+
+			net_conn, err := net.Dial (proto, addr )
+			if  err != nil {
+				err = fmt.Errorf("Error reconnecting %s", err)
+				return nil, err
+			}
+			conn.c = net_conn 
+
+			if err = conn.handshake33 (); err != nil {
+				err = fmt.Errorf("Error with downgraded connection %s", err)
+				conn.Close()
+				return nil, err
+			}
+		} else {
+			conn.Close()		
+			return nil, err
+		}
 	}
 
 	go conn.mainLoop()
@@ -279,7 +303,7 @@ func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
 	return nil
 }
 
-func (c *ClientConn) handshake() error {
+func (c *ClientConn) handshake38() error {
 	var protocolVersion [12]byte
 
 	// 7.1.1, read the ProtocolVersion message sent by the server.
@@ -298,6 +322,7 @@ func (c *ClientConn) handshake() error {
 	}
 
 	if maxMinor < 8 {
+		c.Downgrade = true
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
 
@@ -399,6 +424,90 @@ FindAuth:
 
 	return nil
 }
+
+func (c *ClientConn) handshake33() error {
+	var protocolVersion [12]byte
+
+	// 7.1.1, read the ProtocolVersion message sent by the server.
+	if _, err := io.ReadFull(c.c, protocolVersion[:]); err != nil {
+		return err
+	}
+
+	var maxMajor, maxMinor uint8
+	_, err := fmt.Sscanf(string(protocolVersion[:]), "RFB %d.%d\n", &maxMajor, &maxMinor)
+	if err != nil {
+		return err
+	}
+
+	if maxMajor != 3 {
+		return fmt.Errorf("unsupported major version, not equal 3: %d", maxMajor)
+	}
+
+	if maxMinor != 3 {
+		return fmt.Errorf("unsupported minor version, not equal 3: %d", maxMinor)
+	}
+
+	// Respond with the version we will support
+	if _, err = c.c.Write([]byte("RFB 003.003\n")); err != nil {
+		return err
+	}
+
+	// 7.1.2 Security Handshake from server
+	var securityType uint32
+	if err = binary.Read(c.c, binary.BigEndian, &securityType); err != nil {
+		return err
+	}
+
+	switch securityType {
+
+		case 0: // connection failed
+			return fmt.Errorf("Connection failed: %s", c.readErrorReason())
+		case 1: // no auth; no securityResult and go to init
+
+		case 2: // auth, and connection will be closed on error
+			// i couldn't find the VNC auth methods here -- need check
+			return fmt.Errorf("Requests VNC auth, but not implemented")
+	}
+
+	// 7.3.1 ClientInit
+	var sharedFlag uint8 = 1
+	if c.config.Exclusive {
+		sharedFlag = 0
+	}
+
+	if err = binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
+		return err
+	}
+
+	// 7.3.2 ServerInit
+	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferWidth); err != nil {
+		return err
+	}
+
+	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferHeight); err != nil {
+		return err
+	}
+
+	// Read the pixel format
+	if err = readPixelFormat(c.c, &c.PixelFormat); err != nil {
+		return err
+	}
+
+	var nameLength uint32
+	if err = binary.Read(c.c, binary.BigEndian, &nameLength); err != nil {
+		return err
+	}
+
+	nameBytes := make([]uint8, nameLength)
+	if err = binary.Read(c.c, binary.BigEndian, &nameBytes); err != nil {
+		return err
+	}
+
+	c.DesktopName = string(nameBytes)
+
+	return nil
+}
+
 
 // mainLoop reads messages sent from the server and routes them to the
 // proper channels for users of the client to read.
