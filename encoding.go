@@ -2,6 +2,9 @@ package vnc
 
 import (
 	"encoding/binary"
+	"image"
+	"image/color"
+	"image/draw"
 	"io"
 )
 
@@ -14,21 +17,19 @@ type Encoding interface {
 	// Read reads the contents of the encoded pixel data from the reader.
 	// This should return a new Encoding implementation that contains
 	// the proper data.
-	Read(*ClientConn, *Rectangle, io.Reader) (Encoding, error)
+	Read(*ClientConn, image.Rectangle, io.Reader) (image.Image, error)
 }
 
 // RawEncoding is raw pixel data sent by the server.
 //
 // See RFC 6143 Section 7.7.1
-type RawEncoding struct {
-	Colors []Color
-}
+type RawEncoding struct{}
 
 func (*RawEncoding) Type() int32 {
 	return 0
 }
 
-func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding, error) {
+func (*RawEncoding) Read(c *ClientConn, rect image.Rectangle, r io.Reader) (image.Image, error) {
 	bytesPerPixel := c.PixelFormat.BPP / 8
 	pixelBytes := make([]uint8, bytesPerPixel)
 
@@ -37,10 +38,19 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 		byteOrder = binary.BigEndian
 	}
 
-	colors := make([]Color, int(rect.Height)*int(rect.Width))
+	var img draw.Image
+	if c.PixelFormat.TrueColor {
+		img = image.NewRGBA(rect)
+	} else {
+		var palette [256]color.Color
+		for i := 0; i < 256; i++ {
+			palette[i] = c.ColorMap[i]
+		}
+		img = image.NewPaletted(rect, palette[:])
+	}
 
-	for y := uint16(0); y < rect.Height; y++ {
-		for x := uint16(0); x < rect.Width; x++ {
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		for x := rect.Min.X; x < rect.Max.X; x++ {
 			if _, err := io.ReadFull(r, pixelBytes); err != nil {
 				return nil, err
 			}
@@ -54,16 +64,21 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 				rawPixel = byteOrder.Uint32(pixelBytes)
 			}
 
-			color := &colors[int(y)*int(rect.Width)+int(x)]
+			var pixel color.RGBA
 			if c.PixelFormat.TrueColor {
-				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
-				color.G = uint16((rawPixel >> c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
-				color.B = uint16((rawPixel >> c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
+				pixel.R = uint8(((uint16(rawPixel>>c.PixelFormat.RedShift) &
+					c.PixelFormat.RedMax) * 255) / c.PixelFormat.RedMax)
+				pixel.G = uint8(((uint16(rawPixel>>c.PixelFormat.BlueShift) &
+					c.PixelFormat.BlueMax) * 255) / c.PixelFormat.BlueMax)
+				pixel.B = uint8(((uint16(rawPixel>>c.PixelFormat.GreenShift) &
+					c.PixelFormat.GreenMax) * 255) / c.PixelFormat.GreenMax)
+				pixel.A = 255
 			} else {
-				*color = c.ColorMap[rawPixel]
+				pixel = c.ColorMap[rawPixel]
 			}
+			img.Set(x, y, pixel)
 		}
 	}
 
-	return &RawEncoding{colors}, nil
+	return img, nil
 }

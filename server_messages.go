@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"image"
+	"image/color"
 )
 
 // A ServerMessage implements a message sent from the server to the client.
@@ -17,19 +19,21 @@ type ServerMessage interface {
 	Read(*ClientConn, io.Reader) (ServerMessage, error)
 }
 
-// FramebufferUpdateMessage consists of a sequence of rectangles of
-// pixel data that the client should put into its framebuffer.
+// FramebufferUpdateMessage consists of a sequence of images that the
+// client should combine into its framebuffer.
 type FramebufferUpdateMessage struct {
-	Rectangles []Rectangle
+	Rectangles []image.Image
 }
 
 // Rectangle represents a rectangle of pixel data.
-type Rectangle struct {
+//
+// See RFC 6143 Section 7.6.1
+type rectangleHeader struct {
 	X      uint16
 	Y      uint16
 	Width  uint16
 	Height uint16
-	Enc    Encoding
+	Enc    int32
 }
 
 func (*FramebufferUpdateMessage) Type() uint8 {
@@ -58,38 +62,30 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
 
-	rects := make([]Rectangle, numRects)
+	rectangles := make([]image.Image, 0, numRects)
 	for i := uint16(0); i < numRects; i++ {
-		var encodingType int32
-
-		rect := &rects[i]
-		data := []interface{}{
-			&rect.X,
-			&rect.Y,
-			&rect.Width,
-			&rect.Height,
-			&encodingType,
-		}
-
-		for _, val := range data {
-			if err := binary.Read(r, binary.BigEndian, val); err != nil {
-				return nil, err
-			}
-		}
-
-		enc, ok := encMap[encodingType]
-		if !ok {
-			return nil, fmt.Errorf("unsupported encoding type: %d", encodingType)
-		}
-
-		var err error
-		rect.Enc, err = enc.Read(c, rect, r)
-		if err != nil {
+		var hdr rectangleHeader
+		if err := binary.Read(r, binary.BigEndian, &hdr); err != nil {
 			return nil, err
+		}
+		rectangle := image.Rectangle{
+			image.Point{int(hdr.X), int(hdr.Y)},
+			image.Point{int(hdr.X + hdr.Width), int(hdr.Y + hdr.Height)},
+		}
+
+		enc, ok := encMap[hdr.Enc]
+		if !ok {
+			return nil, fmt.Errorf("unsupported encoding type: %d", hdr.Enc)
+		}
+
+		if img, err := enc.Read(c, rectangle, r); err != nil {
+			return nil, err
+		} else {
+			rectangles = append(rectangles, img)
 		}
 	}
 
-	return &FramebufferUpdateMessage{rects}, nil
+	return &FramebufferUpdateMessage{rectangles}, nil
 }
 
 // SetColorMapEntriesMessage is sent by the server to set values into
@@ -100,7 +96,7 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 // See RFC 6143 Section 7.6.2
 type SetColorMapEntriesMessage struct {
 	FirstColor uint16
-	Colors     []Color
+	Colors     []color.RGBA
 }
 
 func (*SetColorMapEntriesMessage) Type() uint8 {
@@ -124,7 +120,7 @@ func (*SetColorMapEntriesMessage) Read(c *ClientConn, r io.Reader) (ServerMessag
 		return nil, err
 	}
 
-	result.Colors = make([]Color, numColors)
+	result.Colors = make([]color.RGBA, numColors)
 	for i := uint16(0); i < numColors; i++ {
 
 		color := &result.Colors[i]

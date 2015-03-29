@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"unicode"
+	"image/color"
 )
 
 type ClientConn struct {
@@ -20,7 +21,7 @@ type ClientConn struct {
 	// If the pixel format uses a color map, then this is the color
 	// map that is used. This should not be modified directly, since
 	// the data comes from the server.
-	ColorMap [256]Color
+	ColorMap [256]color.RGBA
 
 	// Encodings supported by the client. This should not be modified
 	// directly. Instead, SetEncodings should be used.
@@ -271,10 +272,6 @@ func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
 	if _, err := c.c.Write(keyEvent[:]); err != nil {
 		return err
 	}
-
-	// Reset the color map as according to RFC.
-	var newColorMap [256]Color
-	c.ColorMap = newColorMap
 
 	return nil
 }
