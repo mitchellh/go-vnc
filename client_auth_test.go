@@ -9,3 +9,11 @@ func TestClientAuthNone_Impl(t *testing.T) {
 		t.Fatal("ClientAuthNone doesn't implement ClientAuth")
 	}
 }
+
+func TestClientAuthVNC_Impl(t *testing.T) {
+	var raw interface{}
+	raw = new(ClientAuthVNC)
+	if _, ok := raw.(ClientAuth); !ok {
+		t.Fatal("ClientAuthVNC doesn't implement ClientAuth")
+	}
+}
