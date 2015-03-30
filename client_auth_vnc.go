@@ -29,8 +29,11 @@ func (auth *ClientAuthVNC) Handshake(conn net.Conn) error {
 	// Each byte of the password needs to be reversed. This is a
 	// non RFC-documented behaviour of VNC clients and servers
 	for i := range key {
-		key[i] = reverse(key[i])
+		key[i] = (key[i]&0x55)<<1 | (key[i]&0xAA)>>1 // Swap adjacent bits
+		key[i] = (key[i]&0x33)<<2 | (key[i]&0xCC)>>2 // Swap adjacent pairs
+		key[i] = (key[i]&0x0F)<<4 | (key[i]&0xF0)>>4 // Swap the 2 halves
 	}
+
 	cipher, err := des.NewCipher(key)
 	if err != nil {
 		return err
@@ -49,11 +52,4 @@ func (auth *ClientAuthVNC) Handshake(conn net.Conn) error {
 	}
 
 	return nil
-}
-
-func reverse(x byte) byte {
-	x = (x&0x55)<<1 | (x&0xAA)>>1
-	x = (x&0x33)<<2 | (x&0xCC)>>2
-	x = (x&0x0F)<<4 | (x&0xF0)>>4
-	return x
 }
