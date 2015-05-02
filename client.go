@@ -279,24 +279,41 @@ func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
 	return nil
 }
 
+const pvLen = 12 // ProtocolVersion message length.
+
+func parseProtocolVersion(pv []byte) (uint, uint, error) {
+	var major, minor uint
+
+	if len(pv) < pvLen {
+		return 0, 0, fmt.Errorf("ProtocolVersion message too short (%v < %v)", len(pv), pvLen)
+	}
+
+	l, err := fmt.Sscanf(string(pv), "RFB %d.%d\n", &major, &minor)
+	if l != 2 {
+		return 0, 0, fmt.Errorf("error parsing ProtocolVersion.")
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return major, minor, nil
+}
+
 func (c *ClientConn) handshake() error {
-	var protocolVersion [12]byte
+	var protocolVersion [pvLen]byte
 
 	// 7.1.1, read the ProtocolVersion message sent by the server.
 	if _, err := io.ReadFull(c.c, protocolVersion[:]); err != nil {
 		return err
 	}
 
-	var maxMajor, maxMinor uint8
-	_, err := fmt.Sscanf(string(protocolVersion[:]), "RFB %d.%d\n", &maxMajor, &maxMinor)
+	maxMajor, maxMinor, err := parseProtocolVersion(protocolVersion[:])
 	if err != nil {
 		return err
 	}
-
 	if maxMajor < 3 {
 		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
 	}
-
 	if maxMinor < 8 {
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
