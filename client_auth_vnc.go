@@ -1,3 +1,9 @@
+/*
+ClientAuthVNC implements the ClientAuth interface to provide support for
+VNC Authentication.
+
+See http://tools.ietf.org/html/rfc6143#section-7.2.2 for more info.
+*/
 package vnc
 
 import (
@@ -15,13 +21,27 @@ func (*ClientAuthVNC) SecurityType() uint8 {
 	return 2
 }
 
+// 7.2.2. VNC Authentication uses a 16-byte challenge.
+const challengeSize = 16
+
 func (auth *ClientAuthVNC) Handshake(conn net.Conn) error {
 	// Read challenge block
-	var challenge [16]byte
+	var challenge [challengeSize]byte
 	if err := binary.Read(conn, binary.BigEndian, &challenge); err != nil {
 		return err
 	}
 
+	auth.encode(&challenge)
+
+	// Send the encrypted challenge back to server
+	if err := binary.Write(conn, binary.BigEndian, challenge); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (auth *ClientAuthVNC) encode(c *[challengeSize]byte) error {
 	// Copy password string to 8 byte 0-padded slice
 	key := make([]byte, 8)
 	copy(key, auth.Password)
@@ -34,21 +54,13 @@ func (auth *ClientAuthVNC) Handshake(conn net.Conn) error {
 		key[i] = (key[i]&0x0F)<<4 | (key[i]&0xF0)>>4 // Swap the 2 halves
 	}
 
+	// Encrypt challenge with key.
 	cipher, err := des.NewCipher(key)
 	if err != nil {
 		return err
 	}
-
-	// Encrypt the challenge low 8 bytes then high 8 bytes
-	challengeLow := challenge[0:8]
-	challengeHigh := challenge[8:16]
-	cipher.Encrypt(challengeLow, challengeLow)
-	cipher.Encrypt(challengeHigh, challengeHigh)
-
-	// Send the encrypted challenge back to server
-	err = binary.Write(conn, binary.BigEndian, challenge)
-	if err != nil {
-		return err
+	for i := 0; i < challengeSize; i += cipher.BlockSize() {
+		cipher.Encrypt(c[i:i+cipher.BlockSize()], c[i:i+cipher.BlockSize()])
 	}
 
 	return nil
