@@ -173,7 +173,7 @@ func (*ServerCutTextMessage) Type() uint8 {
 
 func (*ServerCutTextMessage) Read(c *ClientConn, r io.Reader) (ServerMessage, error) {
 	// Read off the padding
-	var padding [1]byte
+	var padding [3]byte
 	if _, err := io.ReadFull(r, padding[:]); err != nil {
 		return nil, err
 	}
