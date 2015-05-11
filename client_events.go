@@ -148,23 +148,23 @@ const (
 	KeyF12
 )
 const (
-	KeyShiftL = iota + 0xffe1
-	KeyShiftR
-	KeyControlL
-	KeyControlR
+	KeyShiftLeft = iota + 0xffe1
+	KeyShiftRight
+	KeyControlLeft
+	KeyControlRight
 	KeyCapsLock
 	_
 	_
 	_
-	KeyAltL
-	KeyAltR
+	KeyAltLeft
+	KeyAltRight
 
 	KeyDelete = 0xffff
 )
 const (
 	// Mouse buttons
-	MouseL = 1 << iota
-	MouseM // middle
-	MouseR
+	MouseLeft = 1 << iota
+	MouseMiddle
+	MouseRight
 	MouseNone = 0
 )
