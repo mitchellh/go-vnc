@@ -300,13 +300,7 @@ func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
 	return nil
 }
 
-const (
-	pvLen = 12 // ProtocolVersion message length.
-
-	// Supported protocol versions.
-	PROTO_VERS_UNSUP = "UNSUP"
-	PROTO_VERS_3_8   = "003.008"
-)
+const pvLen = 12 // ProtocolVersion message length.
 
 func parseProtocolVersion(pv []byte) (uint, uint, error) {
 	var major, minor uint
@@ -325,6 +319,12 @@ func parseProtocolVersion(pv []byte) (uint, uint, error) {
 
 	return major, minor, nil
 }
+
+const (
+	// Client ProtocolVersions.
+	PROTO_VERS_UNSUP = "UNSUPPORTED"
+	PROTO_VERS_3_8   = "RFB 003.008\n"
+)
 
 // protocolVersionHandshake implements §7.1.1 ProtocolVersion Handshake.
 func (c *ClientConn) protocolVersionHandshake() error {
@@ -348,7 +348,7 @@ func (c *ClientConn) protocolVersionHandshake() error {
 	}
 
 	// Respond with the version we will support
-	if _, err = c.c.Write([]byte("RFB " + pv + "\n")); err != nil {
+	if _, err = c.c.Write([]byte(pv)); err != nil {
 		return err
 	}
 
