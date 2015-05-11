@@ -40,7 +40,7 @@ func TestClient_LowMajorVersion(t *testing.T) {
 		t.Fatal("error expected")
 	}
 
-	if err.Error() != "unsupported major version, less than 3: 2" {
+	if err.Error() != "unsupported server ProtocolVersion 'RFB 002.009\n'" {
 		t.Fatalf("unexpected error: %s", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestClient_LowMinorVersion(t *testing.T) {
 		t.Fatal("error expected")
 	}
 
-	if err.Error() != "unsupported minor version, less than 8: 7" {
+	if err.Error() != "unsupported server ProtocolVersion 'RFB 003.007\n'" {
 		t.Fatalf("unexpected error: %s", err)
 	}
 }
@@ -90,6 +90,47 @@ func TestParseProtocolVersion(t *testing.T) {
 		}
 		if major != tt.major {
 			t.Errorf("parseProtocolVersion(%v) minor = %v, want %v", tt.proto, minor, tt.minor)
+		}
+	}
+}
+
+type MockClientIOReaderWriter struct {
+	i, o interface{}
+}
+
+func (rw *MockClientIOReaderWriter) Read(data interface{}) error {
+	rw.i = data
+	return nil
+}
+
+func (rw *MockClientIOReaderWriter) Write(data interface{}) error {
+	rw.o = data
+	return nil
+}
+
+func TestClientInit(t *testing.T) {
+	var err error
+
+	tests := []struct {
+		exclusive bool
+		shared    uint8
+	}{
+		{true, 0},
+		{false, 1},
+	}
+
+	rw := &MockClientIOReaderWriter{}
+	cfg := &ClientConfig{}
+	conn := &ClientConn{config: cfg, rw: rw}
+
+	for _, tt := range tests {
+		cfg.Exclusive = tt.exclusive
+		err = conn.clientInit()
+		if err != nil {
+			t.Fatalf("clientInit() error %v", err)
+		}
+		if rw.o != uint8(tt.shared) {
+			t.Errorf("clientInit() got = %v, want %v", rw.o, tt.shared)
 		}
 	}
 }

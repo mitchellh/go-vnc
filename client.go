@@ -1,7 +1,9 @@
-// Package vnc implements a VNC client.
-//
-// References:
-//   [PROTOCOL]: http://tools.ietf.org/html/rfc6143
+/*
+Package vnc implements a VNC client.
+
+References:
+  [PROTOCOL]: http://tools.ietf.org/html/rfc6143
+*/
 package vnc
 
 import (
@@ -13,9 +15,11 @@ import (
 	"unicode"
 )
 
+// The ClientConn type holds client connection information.
 type ClientConn struct {
 	c      net.Conn
 	config *ClientConfig
+	rw     ClientIO
 
 	// If the pixel format uses a color map, then this is the color
 	// map that is used. This should not be modified directly, since
@@ -71,8 +75,25 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		c:      c,
 		config: cfg,
 	}
+	conn.rw = NewClientIOReaderWriter(c, c)
 
-	if err := conn.handshake(); err != nil {
+	if err := conn.protocolVersionHandshake(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := conn.securityHandshake(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := conn.securityResultHandshake(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := conn.clientInit(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := conn.serverInit(); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -279,7 +300,13 @@ func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
 	return nil
 }
 
-const pvLen = 12 // ProtocolVersion message length.
+const (
+	pvLen = 12 // ProtocolVersion message length.
+
+	// Supported protocol versions.
+	PROTO_VERS_UNSUP = "UNSUP"
+	PROTO_VERS_3_8   = "003.008"
+)
 
 func parseProtocolVersion(pv []byte) (uint, uint, error) {
 	var major, minor uint
@@ -299,42 +326,48 @@ func parseProtocolVersion(pv []byte) (uint, uint, error) {
 	return major, minor, nil
 }
 
-func (c *ClientConn) handshake() error {
+// protocolVersionHandshake implements §7.1.1 ProtocolVersion Handshake.
+func (c *ClientConn) protocolVersionHandshake() error {
 	var protocolVersion [pvLen]byte
 
-	// 7.1.1, read the ProtocolVersion message sent by the server.
+	// Read the ProtocolVersion message sent by the server.
 	if _, err := io.ReadFull(c.c, protocolVersion[:]); err != nil {
 		return err
 	}
 
-	maxMajor, maxMinor, err := parseProtocolVersion(protocolVersion[:])
+	major, minor, err := parseProtocolVersion(protocolVersion[:])
 	if err != nil {
 		return err
 	}
-	if maxMajor < 3 {
-		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
+	pv := PROTO_VERS_UNSUP
+	if major == 3 && minor >= 8 {
+		pv = PROTO_VERS_3_8
 	}
-	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
+	if pv == PROTO_VERS_UNSUP {
+		return fmt.Errorf("unsupported server ProtocolVersion '%v'", string(protocolVersion[:]))
 	}
 
 	// Respond with the version we will support
-	if _, err = c.c.Write([]byte("RFB 003.008\n")); err != nil {
+	if _, err = c.c.Write([]byte("RFB " + pv + "\n")); err != nil {
 		return err
 	}
 
-	// 7.1.2 Security Handshake from server
+	return nil
+}
+
+// securityHandshake implements §7.1.2 Security Handshake.
+func (c *ClientConn) securityHandshake() error {
 	var numSecurityTypes uint8
-	if err = binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
+
+	if err := binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
 		return err
 	}
-
 	if numSecurityTypes == 0 {
 		return fmt.Errorf("no security types: %s", c.readErrorReason())
 	}
 
 	securityTypes := make([]uint8, numSecurityTypes)
-	if err = binary.Read(c.c, binary.BigEndian, &securityTypes); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &securityTypes); err != nil {
 		return err
 	}
 
@@ -354,64 +387,65 @@ FindAuth:
 			}
 		}
 	}
-
 	if auth == nil {
 		return fmt.Errorf("no suitable auth schemes found. server supported: %#v", securityTypes)
 	}
 
 	// Respond back with the security type we'll use
-	if err = binary.Write(c.c, binary.BigEndian, auth.SecurityType()); err != nil {
+	if err := binary.Write(c.c, binary.BigEndian, auth.SecurityType()); err != nil {
 		return err
 	}
-
-	if err = auth.Handshake(c.c); err != nil {
+	if err := auth.Handshake(c.c); err != nil {
 		return err
 	}
+	return nil
+}
 
-	// 7.1.3 SecurityResult Handshake
+// securityResultHandshake implements §7.1.3 SecurityResult Handshake.
+func (c *ClientConn) securityResultHandshake() error {
 	var securityResult uint32
-	if err = binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
 		return err
 	}
-
 	if securityResult == 1 {
 		return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
 	}
+	return nil
+}
 
-	// 7.3.1 ClientInit
-	var sharedFlag uint8 = 1
-	if c.config.Exclusive {
-		sharedFlag = 0
+// clientInit implements §7.3.1 ClientInit.
+func (c *ClientConn) clientInit() error {
+	var sharedFlag uint8
+	if !c.config.Exclusive {
+		sharedFlag = 1
 	}
-
-	if err = binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
+	//if err := binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
+	if err := c.rw.Write(sharedFlag); err != nil {
 		return err
 	}
+	return nil
+}
 
-	// 7.3.2 ServerInit
-	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferWidth); err != nil {
+// serverInit implements §7.3.2 ServerInit.
+func (c *ClientConn) serverInit() error {
+	if err := binary.Read(c.c, binary.BigEndian, &c.FrameBufferWidth); err != nil {
 		return err
 	}
-
-	if err = binary.Read(c.c, binary.BigEndian, &c.FrameBufferHeight); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &c.FrameBufferHeight); err != nil {
 		return err
 	}
-
-	// Read the pixel format
-	if err = readPixelFormat(c.c, &c.PixelFormat); err != nil {
+	if err := readPixelFormat(c.c, &c.PixelFormat); err != nil {
 		return err
 	}
 
 	var nameLength uint32
-	if err = binary.Read(c.c, binary.BigEndian, &nameLength); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &nameLength); err != nil {
 		return err
 	}
-
 	nameBytes := make([]uint8, nameLength)
-	if err = binary.Read(c.c, binary.BigEndian, &nameBytes); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &nameBytes); err != nil {
 		return err
 	}
-
 	c.DesktopName = string(nameBytes)
 
 	return nil
@@ -479,4 +513,26 @@ func (c *ClientConn) readErrorReason() string {
 	}
 
 	return string(reason)
+}
+
+type ClientIO interface {
+	Read(data interface{}) error
+	Write(data interface{}) error
+}
+
+type ClientIOReaderWriter struct {
+	reader io.Reader
+	writer io.Writer
+}
+
+func NewClientIOReaderWriter(r io.Reader, w io.Writer) ClientIOReaderWriter {
+	return ClientIOReaderWriter{r, w}
+}
+
+func (rw ClientIOReaderWriter) Read(data interface{}) error {
+	return binary.Read(rw.reader, binary.BigEndian, data)
+}
+
+func (rw ClientIOReaderWriter) Write(data interface{}) error {
+	return binary.Write(rw.writer, binary.BigEndian, data)
 }
