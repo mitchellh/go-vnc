@@ -16,7 +16,7 @@ type ClientAuth interface {
 }
 
 // ClientAuthNone is the "none" authentication. See 7.1.2
-type ClientAuthNone byte
+type ClientAuthNone struct{}
 
 func (*ClientAuthNone) SecurityType() uint8 {
 	return 1
