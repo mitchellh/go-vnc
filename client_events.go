@@ -128,10 +128,10 @@ const (
 	KeyReturn
 )
 const (
-	KeyPause       = 0xff13
+	KeyPause      = 0xff13
 	KeyScrollLock = 0xff14
 	KeySysReq     = 0xff15
-	KeyEscape      = 0xff1b
+	KeyEscape     = 0xff1b
 )
 const (
 	KeyF1 = iota + 0xffbe
@@ -163,8 +163,8 @@ const (
 )
 const (
 	// Mouse buttons
-	MouseLeft = 1 << iota
-	MouseMiddle
-	MouseRight
+	MouseL = 1 << iota
+	MouseM // middle
+	MouseR
 	MouseNone = 0
 )
