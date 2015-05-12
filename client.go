@@ -87,7 +87,7 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		conn.Close()
 		return nil, err
 	}
-	if _, err := conn.clientInit(); err != nil {
+	if err := conn.clientInit(); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -342,7 +342,7 @@ func (c *ClientConn) protocolVersionHandshake() error {
 		pv = PROTO_VERS_3_8
 	}
 	if pv == PROTO_VERS_UNSUP {
-		return fmt.Errorf("unsupported server ProtocolVersion '%v'", string(protocolVersion[:]))
+		return NewVNCError(fmt.Sprintf("ProtocolVersion handshake failed; unsupported version '%v'", string(protocolVersion[:])))
 	}
 
 	// Respond with the version we will support
@@ -356,7 +356,6 @@ func (c *ClientConn) protocolVersionHandshake() error {
 // securityHandshake implements §7.1.2 Security Handshake.
 func (c *ClientConn) securityHandshake() error {
 	var numSecurityTypes uint8
-
 	if err := binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
 		return err
 	}
@@ -365,7 +364,7 @@ func (c *ClientConn) securityHandshake() error {
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("no security types: %s", reason)
+		return NewVNCError(fmt.Sprintf("Security handshake failed; no security types: %v", reason))
 	}
 
 	securityTypes := make([]uint8, numSecurityTypes)
@@ -390,7 +389,7 @@ FindAuth:
 		}
 	}
 	if auth == nil {
-		return fmt.Errorf("no suitable auth schemes found. server supported: %#v", securityTypes)
+		return NewVNCError(fmt.Sprintf("Security handshake failed; no suitable auth schemes found; server supports: %#v", securityTypes))
 	}
 
 	// Respond back with the security type we'll use
@@ -422,17 +421,17 @@ func (c *ClientConn) securityResultHandshake() error {
 }
 
 // clientInit implements §7.3.1 ClientInit.
-func (c *ClientConn) clientInit() (uint8, error) {
+func (c *ClientConn) clientInit() error {
 	var sharedFlag uint8
 
 	if !c.config.Exclusive {
 		sharedFlag = 1
 	}
 	if err := binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
-		return 0, err
+		return err
 	}
 
-	return sharedFlag, nil
+	return nil
 }
 
 // serverInit implements §7.3.2 ServerInit.

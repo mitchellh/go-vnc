@@ -43,9 +43,10 @@ func TestClient_LowMajorVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("error expected")
 	}
-
-	if err.Error() != "unsupported server ProtocolVersion 'RFB 002.009\n'" {
-		t.Fatalf("unexpected error: %s", err)
+	if err != nil {
+		if verr, ok := err.(*VNCError); !ok {
+			t.Errorf("Client() unexpected %v error: %v", reflect.TypeOf(err), verr)
+		}
 	}
 }
 
@@ -59,9 +60,10 @@ func TestClient_LowMinorVersion(t *testing.T) {
 	if err == nil {
 		t.Fatal("error expected")
 	}
-
-	if err.Error() != "unsupported server ProtocolVersion 'RFB 003.007\n'" {
-		t.Fatalf("unexpected error: %s", err)
+	if err != nil {
+		if verr, ok := err.(*VNCError); !ok {
+			t.Errorf("Client() unexpected %v error: %v", reflect.TypeOf(err), verr)
+		}
 	}
 }
 
@@ -98,6 +100,116 @@ func TestParseProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestProtocolVersionHandshake(t *testing.T) {
+	tests := []struct {
+		server string
+		client string
+		ok     bool
+	}{
+		// Supported versions.
+		{"RFB 003.008\n", "RFB 003.008\n", true},
+		{"RFB 003.389\n", "RFB 003.008\n", true},
+		// Unsupported versions.
+		{server: "RFB 003.003\n", ok: false},
+		{server: "RFB 002.009\n", ok: false},
+	}
+
+	mockConn := &MockConn{}
+	conn := &ClientConn{
+		c:      mockConn,
+		config: &ClientConfig{},
+	}
+
+	for _, tt := range tests {
+		mockConn.Reset()
+		if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.server)); err != nil {
+			t.Fatal(err)
+		}
+
+		// Validate server message.
+		err := conn.protocolVersionHandshake()
+		if err == nil && !tt.ok {
+			t.Fatalf("protocolVersionHandshake() expected error for server protocol version %v", tt.server)
+		}
+		if err != nil {
+			if verr, ok := err.(*VNCError); !ok {
+				t.Errorf("protocolVersionHandshake() unexpected %v error: %v", reflect.TypeOf(err), verr)
+			}
+		}
+
+		// Validate client response.
+		var client [pvLen]byte
+		err = binary.Read(conn.c, binary.BigEndian, &client)
+		if err == nil && !tt.ok {
+			t.Fatalf("protocolVersionHandshake() unexpected error: %v", err)
+		}
+		if string(client[:]) != tt.client && tt.ok {
+			t.Errorf("protocolVersionHandshake() client version: got = %v, want = %v", string(client[:]), tt.client)
+		}
+	}
+}
+
+func TestSecurityHandshake(t *testing.T) {
+	tests := []struct {
+		server  []uint8
+		client  []ClientAuth
+		secType uint8
+		ok      bool
+	}{
+		//-- Supported security types. --
+		// Both server and client support the None security type.
+		{[]uint8{secTypeNone}, []ClientAuth{&ClientAuthNone{}}, secTypeNone, true},
+		// Server supports None and VNCAuth, client supports only None.
+		{[]uint8{secTypeVNCAuth, secTypeNone}, []ClientAuth{&ClientAuthNone{}}, secTypeNone, true},
+		//-- Unsupported security types. --
+		// Server provided no security types.
+		{[]uint8{}, []ClientAuth{&ClientAuthNone{}}, secTypeInvalid, false},
+		// Client and server don't support same security types.
+		{[]uint8{secTypeVNCAuth}, []ClientAuth{&ClientAuthNone{}}, secTypeInvalid, false},
+	}
+
+	mockConn := &MockConn{}
+	conn := &ClientConn{
+		c:      mockConn,
+		config: &ClientConfig{},
+	}
+
+	for _, tt := range tests {
+		mockConn.Reset()
+		if len(tt.server) > 0 {
+			if err := binary.Write(conn.c, binary.BigEndian, uint8(len(tt.server))); err != nil {
+				t.Fatal(err)
+			}
+			if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.server)); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Validate server message.
+		conn.config.Auth = tt.client
+		err := conn.securityHandshake()
+		if err == nil && !tt.ok {
+			t.Fatalf("securityHandshake() expected error for server auth %v", tt.server)
+		}
+		if len(tt.server) == 0 {
+			// The protocol was incomplete; no point in checking values.
+			continue
+		}
+		if err != nil {
+			if verr, ok := err.(*VNCError); !ok {
+				t.Errorf("securityHandshake() unexpected %v error: %v", reflect.TypeOf(err), verr)
+			}
+		}
+
+		// Validate client response.
+		var secType uint8
+		err = binary.Read(conn.c, binary.BigEndian, &secType)
+		if secType != tt.secType {
+			t.Errorf("securityHandshake() secType: got = %v, want = %v", secType, tt.secType)
+		}
+	}
+}
+
 func TestSecurityResultHandshake(t *testing.T) {
 	tests := []struct {
 		result uint32
@@ -126,6 +238,7 @@ func TestSecurityResultHandshake(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		// Validate server message.
 		err := conn.securityResultHandshake()
 		if err == nil && !tt.ok {
 			t.Fatalf("securityResultHandshake() expected error for result %v", tt.result)
@@ -157,12 +270,15 @@ func TestClientInit(t *testing.T) {
 		mockConn.Reset()
 		conn.config.Exclusive = tt.exclusive
 
-		shared, err := conn.clientInit()
+		// Validate client response.
+		err := conn.clientInit()
 		if err != nil {
-			t.Fatalf("clientInit() error %v", err)
+			t.Fatalf("clientInit() unexpected error %v", err)
 		}
+		var shared uint8
+		err = binary.Read(conn.c, binary.BigEndian, &shared)
 		if shared != tt.shared {
-			t.Errorf("clientInit() got = %v, want %v", shared, tt.shared)
+			t.Errorf("clientInit() shared: got = %v, want = %v", shared, tt.shared)
 		}
 	}
 }
@@ -222,12 +338,13 @@ func TestServerInit(t *testing.T) {
 			}
 		}
 
+		// Validate server message.
 		err := conn.serverInit()
 		if tt.eof < dn && err == nil {
 			t.Fatalf("serverInit() expected error")
 		}
 		if tt.eof < dn {
-			// If the protocol was incomplete, there is no point in checking values.
+			// The protocol was incomplete; no point in checking values.
 			continue
 		}
 		if err != nil {
