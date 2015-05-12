@@ -167,6 +167,56 @@ func TestClientInit(t *testing.T) {
 	}
 }
 
+func TestServerInit(t *testing.T) {
+	tests := []struct {
+		fbWidth, fbHeight uint16
+		pixelFormat       [16]byte // TODO(kward): replace with PixelFormat
+		desktopName       string
+	}{
+		{100, 200, [16]byte{}, "foo"},
+	}
+
+	mockConn := &MockConn{}
+	conn := &ClientConn{
+		c:      mockConn,
+		config: &ClientConfig{},
+	}
+
+	for _, tt := range tests {
+		mockConn.Reset()
+		if err := binary.Write(conn.c, binary.BigEndian, tt.fbWidth); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, tt.fbHeight); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, tt.pixelFormat); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, uint32(len(tt.desktopName))); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.desktopName)); err != nil {
+			t.Fatal(err)
+		}
+
+		err := conn.serverInit()
+		if err != nil {
+			t.Fatalf("serverInit() error %v", err)
+		}
+		if conn.FrameBufferWidth != tt.fbWidth {
+			t.Errorf("serverInit() FrameBufferWidth: got = %v, want = %v", conn.FrameBufferWidth, tt.fbWidth)
+		}
+		if conn.FrameBufferHeight != tt.fbHeight {
+			t.Errorf("serverInit() FrameBufferHeight: got = %v, want = %v", conn.FrameBufferHeight, tt.fbHeight)
+		}
+		// TODO(kward): add test for PixelFormat.
+		if conn.DesktopName != tt.desktopName {
+			t.Errorf("serverInit() DesktopName: got = %v, want = %v", conn.DesktopName, tt.desktopName)
+		}
+	}
+}
+
 // MockConn implements the net.Conn interface.
 type MockConn struct {
 	b bytes.Buffer
@@ -184,6 +234,7 @@ func (m *MockConn) RemoteAddr() net.Addr               { return nil }
 func (m *MockConn) SetDeadline(t time.Time) error      { return nil }
 func (m *MockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *MockConn) SetWriteDeadline(t time.Time) error { return nil }
+
 // Implement additional buffer.Buffer functions.
 func (m *MockConn) Reset() {
 	m.b.Reset()
