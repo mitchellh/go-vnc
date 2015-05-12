@@ -1,9 +1,13 @@
 package vnc
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"net"
+	"reflect"
 	"testing"
+	"time"
 )
 
 func newMockServer(t *testing.T, version string) string {
@@ -94,23 +98,47 @@ func TestParseProtocolVersion(t *testing.T) {
 	}
 }
 
-type MockClientIOReaderWriter struct {
-	i, o interface{}
-}
+func TestSecurityResultHandshake(t *testing.T) {
+	tests := []struct {
+		result uint32
+		ok     bool
+		reason string
+	}{
+		{0, true, ""},
+		{1, false, "SecurityResult error"},
+	}
 
-func (rw *MockClientIOReaderWriter) Read(data interface{}) error {
-	rw.i = data
-	return nil
-}
+	mockConn := &MockConn{}
+	conn := &ClientConn{
+		c:      mockConn,
+		config: &ClientConfig{},
+	}
 
-func (rw *MockClientIOReaderWriter) Write(data interface{}) error {
-	rw.o = data
-	return nil
+	for _, tt := range tests {
+		mockConn.Reset()
+		if err := binary.Write(conn.c, binary.BigEndian, tt.result); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, uint32(len(tt.reason))); err != nil {
+			t.Fatal(err)
+		}
+		if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.reason)); err != nil {
+			t.Fatal(err)
+		}
+
+		err := conn.securityResultHandshake()
+		if err == nil && !tt.ok {
+			t.Fatalf("securityResultHandshake() expected error for result %v", tt.result)
+		}
+		if err != nil {
+			if verr, ok := err.(*vncError); !ok {
+				t.Errorf("securityResultHandshake() unexpected %v error: %v", reflect.TypeOf(err), verr)
+			}
+		}
+	}
 }
 
 func TestClientInit(t *testing.T) {
-	var err error
-
 	tests := []struct {
 		exclusive bool
 		shared    uint8
@@ -119,18 +147,44 @@ func TestClientInit(t *testing.T) {
 		{false, 1},
 	}
 
-	rw := &MockClientIOReaderWriter{}
-	cfg := &ClientConfig{}
-	conn := &ClientConn{config: cfg, rw: rw}
+	mockConn := &MockConn{}
+	conn := &ClientConn{
+		c:      mockConn,
+		config: &ClientConfig{},
+	}
 
 	for _, tt := range tests {
-		cfg.Exclusive = tt.exclusive
-		err = conn.clientInit()
+		mockConn.Reset()
+		conn.config.Exclusive = tt.exclusive
+
+		shared, err := conn.clientInit()
 		if err != nil {
 			t.Fatalf("clientInit() error %v", err)
 		}
-		if rw.o != uint8(tt.shared) {
-			t.Errorf("clientInit() got = %v, want %v", rw.o, tt.shared)
+		if shared != tt.shared {
+			t.Errorf("clientInit() got = %v, want %v", shared, tt.shared)
 		}
 	}
+}
+
+// MockConn implements the net.Conn interface.
+type MockConn struct {
+	b bytes.Buffer
+}
+
+func (m *MockConn) Read(b []byte) (int, error) {
+	return m.b.Read(b)
+}
+func (m *MockConn) Write(b []byte) (int, error) {
+	return m.b.Write(b)
+}
+func (m *MockConn) Close() error                       { return nil }
+func (m *MockConn) LocalAddr() net.Addr                { return nil }
+func (m *MockConn) RemoteAddr() net.Addr               { return nil }
+func (m *MockConn) SetDeadline(t time.Time) error      { return nil }
+func (m *MockConn) SetReadDeadline(t time.Time) error  { return nil }
+func (m *MockConn) SetWriteDeadline(t time.Time) error { return nil }
+// Implement additional buffer.Buffer functions.
+func (m *MockConn) Reset() {
+	m.b.Reset()
 }

@@ -19,7 +19,6 @@ import (
 type ClientConn struct {
 	c      net.Conn
 	config *ClientConfig
-	rw     ClientIO
 
 	// If the pixel format uses a color map, then this is the color
 	// map that is used. This should not be modified directly, since
@@ -75,7 +74,6 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		c:      c,
 		config: cfg,
 	}
-	conn.rw = NewClientIOReaderWriter(c, c)
 
 	if err := conn.protocolVersionHandshake(); err != nil {
 		conn.Close()
@@ -89,7 +87,7 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 		conn.Close()
 		return nil, err
 	}
-	if err := conn.clientInit(); err != nil {
+	if _, err := conn.clientInit(); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -363,7 +361,11 @@ func (c *ClientConn) securityHandshake() error {
 		return err
 	}
 	if numSecurityTypes == 0 {
-		return fmt.Errorf("no security types: %s", c.readErrorReason())
+		reason, err := c.readErrorReason()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("no security types: %s", reason)
 	}
 
 	securityTypes := make([]uint8, numSecurityTypes)
@@ -404,26 +406,33 @@ FindAuth:
 // securityResultHandshake implements §7.1.3 SecurityResult Handshake.
 func (c *ClientConn) securityResultHandshake() error {
 	var securityResult uint32
+
 	if err := binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
 		return err
 	}
 	if securityResult == 1 {
-		return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
+		reason, err := c.readErrorReason()
+		if err != nil {
+			return err
+		}
+		return NewVNCError(fmt.Sprintf("SecurityResult handshake failed: %s", reason))
 	}
+
 	return nil
 }
 
 // clientInit implements §7.3.1 ClientInit.
-func (c *ClientConn) clientInit() error {
+func (c *ClientConn) clientInit() (uint8, error) {
 	var sharedFlag uint8
+
 	if !c.config.Exclusive {
 		sharedFlag = 1
 	}
-	//if err := binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
-	if err := c.rw.Write(sharedFlag); err != nil {
-		return err
+	if err := binary.Write(c.c, binary.BigEndian, sharedFlag); err != nil {
+		return 0, err
 	}
-	return nil
+
+	return sharedFlag, nil
 }
 
 // serverInit implements §7.3.2 ServerInit.
@@ -501,38 +510,28 @@ func (c *ClientConn) mainLoop() {
 	}
 }
 
-func (c *ClientConn) readErrorReason() string {
+func (c *ClientConn) readErrorReason() (string, error) {
 	var reasonLen uint32
 	if err := binary.Read(c.c, binary.BigEndian, &reasonLen); err != nil {
-		return "<error>"
+		return "", err
 	}
 
 	reason := make([]uint8, reasonLen)
 	if err := binary.Read(c.c, binary.BigEndian, &reason); err != nil {
-		return "<error>"
+		return "", err
 	}
 
-	return string(reason)
+	return string(reason), nil
 }
 
-type ClientIO interface {
-	Read(data interface{}) error
-	Write(data interface{}) error
+type vncError struct {
+	s string
 }
 
-type ClientIOReaderWriter struct {
-	reader io.Reader
-	writer io.Writer
+func NewVNCError(s string) error {
+	return &vncError{s}
 }
 
-func NewClientIOReaderWriter(r io.Reader, w io.Writer) ClientIOReaderWriter {
-	return ClientIOReaderWriter{r, w}
-}
-
-func (rw ClientIOReaderWriter) Read(data interface{}) error {
-	return binary.Read(rw.reader, binary.BigEndian, data)
-}
-
-func (rw ClientIOReaderWriter) Write(data interface{}) error {
-	return binary.Write(rw.writer, binary.BigEndian, data)
+func (e vncError) Error() string {
+	return e.s
 }
