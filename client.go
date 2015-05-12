@@ -321,6 +321,7 @@ func parseProtocolVersion(pv []byte) (uint, uint, error) {
 const (
 	// Client ProtocolVersions.
 	PROTO_VERS_UNSUP = "UNSUPPORTED"
+	PROTO_VERS_3_3   = "RFB 003.003\n"
 	PROTO_VERS_3_8   = "RFB 003.008\n"
 )
 
@@ -338,8 +339,12 @@ func (c *ClientConn) protocolVersionHandshake() error {
 		return err
 	}
 	pv := PROTO_VERS_UNSUP
-	if major == 3 && minor >= 8 {
-		pv = PROTO_VERS_3_8
+	if major == 3 {
+		if minor >= 8 {
+			pv = PROTO_VERS_3_8
+		} else if minor >= 3 {
+			pv = PROTO_VERS_3_3
+		}
 	}
 	if pv == PROTO_VERS_UNSUP {
 		return NewVNCError(fmt.Sprintf("ProtocolVersion handshake failed; unsupported version '%v'", string(protocolVersion[:])))

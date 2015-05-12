@@ -51,7 +51,7 @@ func TestClient_LowMajorVersion(t *testing.T) {
 }
 
 func TestClient_LowMinorVersion(t *testing.T) {
-	nc, err := net.Dial("tcp", newMockServer(t, "003.007"))
+	nc, err := net.Dial("tcp", newMockServer(t, "003.002"))
 	if err != nil {
 		t.Fatalf("error connecting to mock server: %s", err)
 	}
@@ -107,10 +107,11 @@ func TestProtocolVersionHandshake(t *testing.T) {
 		ok     bool
 	}{
 		// Supported versions.
+		{"RFB 003.003\n", "RFB 003.003\n", true},
+		{"RFB 003.006\n", "RFB 003.003\n", true},
 		{"RFB 003.008\n", "RFB 003.008\n", true},
 		{"RFB 003.389\n", "RFB 003.008\n", true},
 		// Unsupported versions.
-		{server: "RFB 003.003\n", ok: false},
 		{server: "RFB 002.009\n", ok: false},
 	}
 
