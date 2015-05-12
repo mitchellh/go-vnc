@@ -131,7 +131,7 @@ func TestSecurityResultHandshake(t *testing.T) {
 			t.Fatalf("securityResultHandshake() expected error for result %v", tt.result)
 		}
 		if err != nil {
-			if verr, ok := err.(*vncError); !ok {
+			if verr, ok := err.(*VNCError); !ok {
 				t.Errorf("securityResultHandshake() unexpected %v error: %v", reflect.TypeOf(err), verr)
 			}
 		}

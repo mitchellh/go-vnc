@@ -524,14 +524,16 @@ func (c *ClientConn) readErrorReason() (string, error) {
 	return string(reason), nil
 }
 
-type vncError struct {
+// VNCError implements error interface.
+type VNCError struct {
 	s string
 }
 
+// NewVNCError returns a custom VNCError error.
 func NewVNCError(s string) error {
-	return &vncError{s}
+	return &VNCError{s}
 }
 
-func (e vncError) Error() string {
+func (e VNCError) Error() string {
 	return e.s
 }
