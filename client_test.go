@@ -168,12 +168,26 @@ func TestClientInit(t *testing.T) {
 }
 
 func TestServerInit(t *testing.T) {
+	const (
+		none = iota
+		fbw
+		fbh
+		pf
+		dn
+	)
 	tests := []struct {
+		eof               int
 		fbWidth, fbHeight uint16
 		pixelFormat       [16]byte // TODO(kward): replace with PixelFormat
 		desktopName       string
 	}{
-		{100, 200, [16]byte{}, "foo"},
+		// Valid protocol.
+		{dn, 100, 200, [16]byte{}, "foo"},
+		// Invalid protocol (missing fields).
+		{eof: none},
+		{eof: fbw, fbWidth: 1},
+		{eof: fbh, fbWidth: 2, fbHeight: 1},
+		{eof: pf, fbWidth: 3, fbHeight: 2, pixelFormat: [16]byte{}},
 	}
 
 	mockConn := &MockConn{}
@@ -184,23 +198,38 @@ func TestServerInit(t *testing.T) {
 
 	for _, tt := range tests {
 		mockConn.Reset()
-		if err := binary.Write(conn.c, binary.BigEndian, tt.fbWidth); err != nil {
-			t.Fatal(err)
+		if tt.eof >= fbw {
+			if err := binary.Write(conn.c, binary.BigEndian, tt.fbWidth); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if err := binary.Write(conn.c, binary.BigEndian, tt.fbHeight); err != nil {
-			t.Fatal(err)
+		if tt.eof >= fbh {
+			if err := binary.Write(conn.c, binary.BigEndian, tt.fbHeight); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if err := binary.Write(conn.c, binary.BigEndian, tt.pixelFormat); err != nil {
-			t.Fatal(err)
+		if tt.eof >= pf {
+			if err := binary.Write(conn.c, binary.BigEndian, tt.pixelFormat); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if err := binary.Write(conn.c, binary.BigEndian, uint32(len(tt.desktopName))); err != nil {
-			t.Fatal(err)
-		}
-		if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.desktopName)); err != nil {
-			t.Fatal(err)
+		if tt.eof >= dn {
+			if err := binary.Write(conn.c, binary.BigEndian, uint32(len(tt.desktopName))); err != nil {
+				t.Fatal(err)
+			}
+			if err := binary.Write(conn.c, binary.BigEndian, []byte(tt.desktopName)); err != nil {
+				t.Fatal(err)
+			}
 		}
 
 		err := conn.serverInit()
+		if tt.eof < dn && err == nil {
+			t.Fatalf("serverInit() expected error")
+		}
+		if tt.eof < dn {
+			// If the protocol was incomplete, there is no point in checking values.
+			continue
+		}
 		if err != nil {
 			t.Fatalf("serverInit() error %v", err)
 		}
