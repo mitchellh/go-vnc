@@ -5,12 +5,12 @@ Sample usage:
 
 // Move mouse to x=100, y=200.
 x, y := 100, 200
-conn.PointerEvent(vnc.MouseNone, x, y)
+conn.PointerEvent(vnc.ButtonNone, x, y)
 // Give mouse some time to "settle."
 time.Sleep(10*time.Millisecond)
 // Left click.
-conn.PointerEvent(vnc.MouseLeft, x, y)
-conn.PointerEvent(vnc.MouseNone, x, y)
+conn.PointerEvent(vnc.ButtonLeft, x, y)
+conn.PointerEvent(vnc.ButtonNone, x, y)
 
 // Press return key
 conn.KeyEvent(vnc.KeyReturn, true)
