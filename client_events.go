@@ -161,10 +161,3 @@ const (
 
 	KeyDelete = 0xffff
 )
-const (
-	// Mouse buttons
-	MouseLeft = 1 << iota
-	MouseMiddle
-	MouseRight
-	MouseNone = 0
-)
