@@ -13,4 +13,5 @@ const (
 	Button6
 	Button7
 	Button8
+	ButtonNone = ButtonMask(0)
 )
