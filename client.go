@@ -465,6 +465,10 @@ func (c *ClientConn) mainLoop() {
 
 		c.config.ServerMessageCh <- parsedMsg
 	}
+
+	if c.config.ServerMessageCh != nil {
+		close(c.config.ServerMessageCh)
+	}
 }
 
 func (c *ClientConn) readErrorReason() string {
