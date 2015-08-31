@@ -55,8 +55,12 @@ func (*FramebufferUpdateMessage) Read(c *ClientConn, r io.Reader) (ServerMessage
 	}
 
 	// We must always support the raw encoding
+	// But only add the handler if it's missing, allowing custom implementation
+	// to be specified with ClientConn.SetEncodings()
 	rawEnc := new(RawEncoding)
-	encMap[rawEnc.Type()] = rawEnc
+	if _, found := encMap[rawEnc.Type()]; !found {
+		encMap[rawEnc.Type()] = rawEnc
+	}
 
 	rects := make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
