@@ -312,10 +312,9 @@ func (c *ClientConn) handshake() error {
 		return err
 	}
 	if maxMajor < 3 {
-		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
-	}
-	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
+		return fmt.Errorf("unsupported version, less than 3.8: %d.%d", maxMajor, maxMinor)
+	} else if maxMajor == 3 && maxMinor < 8 {
+		return fmt.Errorf("unsupported version, less than 3.8: %d.%d", maxMajor, maxMinor)
 	}
 
 	// Respond with the version we will support
