@@ -48,16 +48,20 @@ func TakeScreenshot(address, password string) (*image.RGBA, error) {
 		panic("vnc: framebuffer rects length")
 	}
 
-	w := int(rects[0].Width)
-	h := int(rects[0].Height)
+	w := int(vncClient.FrameBufferWidth)
+	h := int(vncClient.FrameBufferHeight)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
-	enc := rects[0].Enc.(*vnc.RawEncoding)
-	for i, c := range enc.Colors {
-		x, y := i%w, i/w
-		r, g, b := uint8(c.R), uint8(c.G), uint8(c.B)
+	for _, rect := range rects {
+		switch enc := rect.Enc.(type) {
+		case *vnc.RawEncoding:
+			for i, c := range enc.Colors {
+				x, y := i%w, i/w
+				r, g, b := uint8(c.R), uint8(c.G), uint8(c.B)
 
-		img.Set(x, y, color.RGBA{r, g, b, 255})
+				img.Set(int(rect.X)+x, int(rect.Y)+y, color.RGBA{r, g, b, 255})
+			}
+		}
 	}
 
 	return img, nil
