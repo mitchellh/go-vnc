@@ -1,6 +1,8 @@
 package vnc
 
 import (
+	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"io"
 )
@@ -67,3 +69,115 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 
 	return &RawEncoding{colors}, nil
 }
+
+// ZlibEncoding is raw pixel data sent by the server compressed by Zlib.
+//
+// A single Zlib stream is created. There is only a single header for a framebuffer request response.
+type ZlibEncoding struct {
+	Colors  []Color
+	ZStream *bytes.Buffer
+	ZReader io.ReadCloser
+}
+
+func (*ZlibEncoding) Type() int32 {
+	return 6
+}
+
+func (ze *ZlibEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding, error) {
+	bytesPerPixel := c.PixelFormat.BPP / 8
+	pixelBytes := make([]uint8, bytesPerPixel)
+
+	var byteOrder binary.ByteOrder = binary.LittleEndian
+	if c.PixelFormat.BigEndian {
+		byteOrder = binary.BigEndian
+	}
+
+	// Format
+	// 4 bytes        | uint32 | length
+	// 'length' bytes | []byte | zlibData
+
+	// Read zlib length
+	var zipLength uint32
+	err := binary.Read(r, binary.BigEndian, &zipLength)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read all compressed data
+	zBytes := make([]byte, zipLength)
+	if _, err := io.ReadFull(r, zBytes); err != nil {
+		return nil, err
+	}
+
+	// Create new zlib stream if needed
+	if ze.ZStream == nil {
+		// Create and save the buffer
+		ze.ZStream = new(bytes.Buffer)
+		ze.ZStream.Write(zBytes)
+
+		// Create a reader for the buffer
+		ze.ZReader, err = zlib.NewReader(ze.ZStream)
+		if err != nil {
+			return nil, err
+		}
+
+		// This is needed to avoid 'zlib missing header'
+	} else {
+		// Just append if already created
+		ze.ZStream.Write(zBytes)
+	}
+
+	// Calculate zlib decompressed size
+	sizeToRead := int(rect.Height) * int(rect.Width) * int(bytesPerPixel)
+
+	// Create buffer for bytes
+	colorBytes := make([]byte, sizeToRead)
+
+	// Read all data from zlib stream
+	read, err := io.ReadFull(ze.ZReader, colorBytes)
+	if read != sizeToRead || err != nil {
+		return nil, err
+	}
+
+	// Create buffer for raw encoding
+	colorReader := bytes.NewReader(colorBytes)
+
+	colors := make([]Color, int(rect.Height)*int(rect.Width))
+
+	for y := uint16(0); y < rect.Height; y++ {
+		for x := uint16(0); x < rect.Width; x++ {
+			if _, err := io.ReadFull(colorReader, pixelBytes); err != nil {
+				return nil, err
+			}
+
+			var rawPixel uint32
+			if c.PixelFormat.BPP == 8 {
+				rawPixel = uint32(pixelBytes[0])
+			} else if c.PixelFormat.BPP == 16 {
+				rawPixel = uint32(byteOrder.Uint16(pixelBytes))
+			} else if c.PixelFormat.BPP == 32 {
+				rawPixel = byteOrder.Uint32(pixelBytes)
+			}
+
+			color := &colors[int(y)*int(rect.Width)+int(x)]
+			if c.PixelFormat.TrueColor {
+				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
+				color.G = uint16((rawPixel >> c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
+				color.B = uint16((rawPixel >> c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
+			} else {
+				*color = c.ColorMap[rawPixel]
+			}
+		}
+	}
+
+	return &ZlibEncoding{Colors: colors}, nil
+}
+
+func (ze *ZlibEncoding) Close() {
+	if ze.ZStream != nil {
+		ze.ZStream = nil
+		ze.ZReader.Close()
+		ze.ZReader = nil
+	}
+}
+
