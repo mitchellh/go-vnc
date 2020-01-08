@@ -35,6 +35,14 @@ func TakeScreenshot(address, password string) (*image.RGBA, error) {
 	}
 	defer vncClient.Close()
 
+	err = vncClient.SetEncodings([]vnc.Encoding{
+		&vnc.ZlibEncoding{},
+		&vnc.RawEncoding{},
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	err = vncClient.FramebufferUpdateRequest(false, 0, 0,
 		vncClient.FrameBufferWidth, vncClient.FrameBufferHeight)
 	if err != nil {
@@ -61,8 +69,18 @@ func TakeScreenshot(address, password string) (*image.RGBA, error) {
 
 				img.Set(int(rect.X)+x, int(rect.Y)+y, color.RGBA{r, g, b, 255})
 			}
+		case *vnc.ZlibEncoding:
+			for i, c := range enc.Colors {
+				x, y := i%w, i/w
+				r, g, b := uint8(c.R), uint8(c.G), uint8(c.B)
+
+				img.Set(int(rect.X)+x, int(rect.Y)+y, color.RGBA{r, g, b, 255})
+			}
+		default:
+			panic("vnc: unkown encoding")
 		}
 	}
+
 
 	return img, nil
 }
