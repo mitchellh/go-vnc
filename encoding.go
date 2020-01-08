@@ -75,8 +75,6 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 // A single Zlib stream is created. There is only a single header for a framebuffer request response.
 type ZlibEncoding struct {
 	Colors  []Color
-	ZStream *bytes.Buffer
-	ZReader io.ReadCloser
 }
 
 func (*ZlibEncoding) Type() int32 {
@@ -97,44 +95,32 @@ func (ze *ZlibEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encod
 	// 'length' bytes | []byte | zlibData
 
 	// Read zlib length
-	var zipLength uint32
-	err := binary.Read(r, binary.BigEndian, &zipLength)
+	var zlibLength uint32
+	err := binary.Read(r, binary.BigEndian, &zlibLength)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read all compressed data
-	zBytes := make([]byte, zipLength)
+	zBytes := make([]byte, zlibLength)
 	if _, err := io.ReadFull(r, zBytes); err != nil {
 		return nil, err
 	}
 
-	// Create new zlib stream if needed
-	if ze.ZStream == nil {
-		// Create and save the buffer
-		ze.ZStream = new(bytes.Buffer)
-		ze.ZStream.Write(zBytes)
-
-		// Create a reader for the buffer
-		ze.ZReader, err = zlib.NewReader(ze.ZStream)
-		if err != nil {
-			return nil, err
-		}
-
-		// This is needed to avoid 'zlib missing header'
-	} else {
-		// Just append if already created
-		ze.ZStream.Write(zBytes)
+	// Create a reader for the buffer
+	// This is needed to avoid 'zlib missing header'
+	zReader, err := zlib.NewReader(bytes.NewReader(zBytes))
+	if err != nil {
+		return nil, err
 	}
-
-	// Calculate zlib decompressed size
-	sizeToRead := int(rect.Height) * int(rect.Width) * int(bytesPerPixel)
+	defer zReader.Close()
 
 	// Create buffer for bytes
+	sizeToRead := int(rect.Height) * int(rect.Width) * int(bytesPerPixel)
 	colorBytes := make([]byte, sizeToRead)
 
 	// Read all data from zlib stream
-	read, err := io.ReadFull(ze.ZReader, colorBytes)
+	read, err := io.ReadFull(zReader, colorBytes)
 	if read != sizeToRead || err != nil {
 		return nil, err
 	}
@@ -172,12 +158,3 @@ func (ze *ZlibEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encod
 
 	return &ZlibEncoding{Colors: colors}, nil
 }
-
-func (ze *ZlibEncoding) Close() {
-	if ze.ZStream != nil {
-		ze.ZStream = nil
-		ze.ZReader.Close()
-		ze.ZReader = nil
-	}
-}
-
