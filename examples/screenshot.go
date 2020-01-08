@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 
-	"github.com/mitchellh/go-vnc"
+	"github.com/tinti/go-vnc"
 )
 
 func TakeScreenshot(address, password string) (*image.RGBA, error) {
