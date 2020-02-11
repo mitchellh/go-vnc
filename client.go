@@ -74,6 +74,9 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 
 	if err := conn.handshake(); err != nil {
 		conn.Close()
+		if cfg.ServerMessageCh != nil {
+			close(cfg.ServerMessageCh)
+		}
 		return nil, err
 	}
 
@@ -419,6 +422,11 @@ FindAuth:
 // mainLoop reads messages sent from the server and routes them to the
 // proper channels for users of the client to read.
 func (c *ClientConn) mainLoop() {
+	defer func() {
+		if c.config.ServerMessageCh != nil {
+			close(c.config.ServerMessageCh)
+		}
+	}()
 	defer c.Close()
 
 	// Build the map of available server messages
