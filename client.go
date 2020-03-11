@@ -74,6 +74,9 @@ func Client(c net.Conn, cfg *ClientConfig) (*ClientConn, error) {
 
 	if err := conn.handshake(); err != nil {
 		conn.Close()
+		if cfg.ServerMessageCh != nil {
+			close(cfg.ServerMessageCh)
+		}
 		return nil, err
 	}
 
@@ -312,10 +315,9 @@ func (c *ClientConn) handshake() error {
 		return err
 	}
 	if maxMajor < 3 {
-		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
-	}
-	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
+		return fmt.Errorf("unsupported version, less than 3.8: %d.%d", maxMajor, maxMinor)
+	} else if maxMajor == 3 && maxMinor < 8 {
+		return fmt.Errorf("unsupported version, less than 3.8: %d.%d", maxMajor, maxMinor)
 	}
 
 	// Respond with the version we will support
@@ -420,6 +422,11 @@ FindAuth:
 // mainLoop reads messages sent from the server and routes them to the
 // proper channels for users of the client to read.
 func (c *ClientConn) mainLoop() {
+	defer func() {
+		if c.config.ServerMessageCh != nil {
+			close(c.config.ServerMessageCh)
+		}
+	}()
 	defer c.Close()
 
 	// Build the map of available server messages
