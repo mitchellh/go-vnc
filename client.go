@@ -314,70 +314,82 @@ func (c *ClientConn) handshake() error {
 	if maxMajor < 3 {
 		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
 	}
-	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
+	if maxMinor < 3 {
+		return fmt.Errorf("unsupported minor version, less than 3: %d", maxMinor)
 	}
 
 	// Respond with the version we will support
-	if _, err = c.c.Write([]byte("RFB 003.008\n")); err != nil {
-		return err
-	}
+	if maxMinor<8 {
+		if _, err = c.c.Write([]byte("RFB 003.003\n")); err != nil {
+			return err
+		}
+		var numSecurityTypes uint32
+		if err = binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
+			return err
+		}
 
-	// 7.1.2 Security Handshake from server
-	var numSecurityTypes uint8
-	if err = binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
-		return err
-	}
+		if numSecurityTypes == 0 {
+			return fmt.Errorf("no security types: %s", c.readErrorReason())
+		}
+	}else{
+		if _, err = c.c.Write([]byte("RFB 003.008\n")); err != nil {
+			return err
+		}
+		// 7.1.2 Security Handshake from server
+		var numSecurityTypes uint8
+		if err = binary.Read(c.c, binary.BigEndian, &numSecurityTypes); err != nil {
+			return err
+		}
 
-	if numSecurityTypes == 0 {
-		return fmt.Errorf("no security types: %s", c.readErrorReason())
-	}
+		if numSecurityTypes == 0 {
+			return fmt.Errorf("no security types: %s", c.readErrorReason())
+		}
 
-	securityTypes := make([]uint8, numSecurityTypes)
-	if err = binary.Read(c.c, binary.BigEndian, &securityTypes); err != nil {
-		return err
-	}
+		securityTypes := make([]uint8, numSecurityTypes)
+		if err = binary.Read(c.c, binary.BigEndian, &securityTypes); err != nil {
+			return err
+		}
 
-	clientSecurityTypes := c.config.Auth
-	if clientSecurityTypes == nil {
-		clientSecurityTypes = []ClientAuth{new(ClientAuthNone)}
-	}
+		clientSecurityTypes := c.config.Auth
+		if clientSecurityTypes == nil {
+			clientSecurityTypes = []ClientAuth{new(ClientAuthNone)}
+		}
 
-	var auth ClientAuth
-FindAuth:
-	for _, curAuth := range clientSecurityTypes {
-		for _, securityType := range securityTypes {
-			if curAuth.SecurityType() == securityType {
-				// We use the first matching supported authentication
-				auth = curAuth
-				break FindAuth
+		var auth ClientAuth
+	FindAuth:
+		for _, curAuth := range clientSecurityTypes {
+			for _, securityType := range securityTypes {
+				if curAuth.SecurityType() == securityType {
+					// We use the first matching supported authentication
+					auth = curAuth
+					break FindAuth
+				}
 			}
 		}
-	}
 
-	if auth == nil {
-		return fmt.Errorf("no suitable auth schemes found. server supported: %#v", securityTypes)
-	}
+		if auth == nil {
+			return fmt.Errorf("no suitable auth schemes found. server supported: %#v", securityTypes)
+		}
 
-	// Respond back with the security type we'll use
-	if err = binary.Write(c.c, binary.BigEndian, auth.SecurityType()); err != nil {
-		return err
-	}
+		// Respond back with the security type we'll use
+		if err = binary.Write(c.c, binary.BigEndian, auth.SecurityType()); err != nil {
+			return err
+		}
 
-	if err = auth.Handshake(c.c); err != nil {
-		return err
-	}
+		if err = auth.Handshake(c.c); err != nil {
+			return err
+		}
 
-	// 7.1.3 SecurityResult Handshake
-	var securityResult uint32
-	if err = binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
-		return err
-	}
+		// 7.1.3 SecurityResult Handshake
+		var securityResult uint32
+		if err = binary.Read(c.c, binary.BigEndian, &securityResult); err != nil {
+			return err
+		}
 
-	if securityResult == 1 {
-		return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
+		if securityResult == 1 {
+			return fmt.Errorf("security handshake failed: %s", c.readErrorReason())
+		}
 	}
-
 	// 7.3.1 ClientInit
 	var sharedFlag uint8 = 1
 	if c.config.Exclusive {
