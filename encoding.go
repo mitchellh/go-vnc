@@ -22,6 +22,7 @@ type Encoding interface {
 // See RFC 6143 Section 7.7.1
 type RawEncoding struct {
 	Colors []Color
+	RawPixel[] uint32
 }
 
 func (*RawEncoding) Type() int32 {
@@ -38,7 +39,7 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 	}
 
 	colors := make([]Color, int(rect.Height)*int(rect.Width))
-
+	rawPixels:=make([]uint32,int(rect.Height)*int(rect.Width))
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
 			if _, err := io.ReadFull(r, pixelBytes); err != nil {
@@ -53,7 +54,7 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 			} else if c.PixelFormat.BPP == 32 {
 				rawPixel = byteOrder.Uint32(pixelBytes)
 			}
-
+			//rawPixels[int(y)*int(rect.Width)+int(x)]=rawPixel
 			color := &colors[int(y)*int(rect.Width)+int(x)]
 			if c.PixelFormat.TrueColor {
 				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
@@ -62,8 +63,10 @@ func (*RawEncoding) Read(c *ClientConn, rect *Rectangle, r io.Reader) (Encoding,
 			} else {
 				*color = c.ColorMap[rawPixel]
 			}
+			rawPixels[int(y)*int(rect.Width)+int(x)]=uint32(color.R)<<16 | uint32(color.G)<<8 | uint32(color.B)
+			//fmt.Printf("%x %x",rawPixel,rawPixels[int(y)*int(rect.Width)+int(x)])
 		}
 	}
 
-	return &RawEncoding{colors}, nil
+	return &RawEncoding{colors,rawPixels}, nil
 }
